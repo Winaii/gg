@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+import sys
 import torch
 import torch.nn as nn
 from datasets import load_dataset
@@ -9,6 +9,10 @@ from transformers import (
     TrainingArguments,
     Trainer
 )
+
+# Import config
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from chat.config import Config
 
 # Training hyperparameters
 MICRO_BATCH_SIZE = 16
@@ -20,9 +24,9 @@ CUTOFF_LEN = 512
 VAL_SET_SIZE = 2000
 
 # Paths
-DATA_PATH = "data/rebel_sub_4omini_context/train_instructions_context_llama2_7b.json"
-OUTPUT_DIR = "models/bert-base-classifier-rebel-sub"
-base_model_path = "google-bert/bert-base-uncased"
+DATA_PATH = Config.BERT_DATA_PATH
+OUTPUT_DIR = Config.BERT_OUTPUT_DIR
+base_model_path = Config.BERT_BASE_MODEL_PATH
 
 # DDP setup
 device_map = "auto"

@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+import sys
 import torch
 import argparse
 import pandas as pd
@@ -7,10 +7,13 @@ from tqdm import tqdm
 from datasets import load_dataset
 from transformers import BertTokenizer, BertForSequenceClassification
 
+# Import config
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from chat.config import Config
+
 # model config
-BASE_MODEL = "google-bert/bert-base-uncased"
-#WEIGHTS_PATH = "models/bert-base-classifier-scierc"
-WEIGHTS_PATH = "models/bert-base-classifier-rebel-sub"
+BASE_MODEL = Config.BERT_BASE_MODEL_PATH
+WEIGHTS_PATH = Config.BERT_OUTPUT_DIR
 
 # device
 device = "cuda" if torch.cuda.is_available() else "cpu"

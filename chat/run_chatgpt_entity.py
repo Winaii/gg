@@ -1,67 +1,106 @@
 # 在文件顶部添加导入  
-from .model_interface import api_model  
-from .config import ModelConfig  
-
+import argparse
+import sys
 import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from chat.model_interface import api_model  
+from chat.config import ModelConfig, Config
+from chat.config import (
+    dataset_dir,
+    test_target_path,
+    denoised_target_path,
+    ensure_iteration_dir,
+    entity_path,
+    DEFAULT_MAX_CONCURRENT,
+)
+
 import asyncio
 from openai import AsyncOpenAI
 from tqdm.asyncio import tqdm
 
-# api_key = ""
-# api_base = ""
 
-# dataset = "rebel_sub"
-dataset = "GenWiki-Hard"  # rebel / webnlg / kelm
-# dataset = "SCIERC"
-dataset_path = f'./datasets/GPT4o_mini_result_{dataset}/'
-Iteration = 1
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Extract entities and denoise text for a dataset iteration."
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        help="Dataset name (e.g. GenWiki-Hard). Can also be set via DATASET_NAME env var.",
+    )
+    parser.add_argument(
+        "--dataset-root",
+        type=str,
+        default=None,
+        help="Datasets root directory. Can also be set via DATASET_ROOT env var.",
+    )
+    parser.add_argument(
+        "--dataset-prefix",
+        type=str,
+        default=None,
+        help="Dataset folder prefix. Can also be set via DATASET_PREFIX env var.",
+    )
+    parser.add_argument(
+        "--iteration",
+        type=int,
+        default=None,
+        help="Iteration index. Iteration 1 reads base test.target; iteration >1 reads previous iteration's denoised target.",
+    )
+    parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=None,
+        help="Maximum number of concurrent API calls. Can also be set via MAX_CONCURRENT env var.",
+    )
+    return parser.parse_args()
 
-if Iteration == 1:
-    with open(dataset_path + 'test.target', 'r') as f:
-        text = [l.strip() for l in f.readlines()]
-else:
-    with open(dataset_path + f'Iteration{Iteration - 1}/test_denoised.target', 'r') as f:
-        text = [l.strip() for l in f.readlines()]
+
+from typing import Optional
+
+
+def load_text(dataset: str, iteration: int, dataset_root: Optional[str], dataset_prefix: Optional[str]):
+    # Iteration 1 reads base test.target; later iterations read previous iteration's denoised output.
+    if iteration == 1:
+        input_path = test_target_path(dataset=dataset, root=dataset_root, prefix=dataset_prefix)
+    else:
+        input_path = denoised_target_path(
+            iteration - 1, dataset=dataset, root=dataset_root, prefix=dataset_prefix
+        )
+
+    if not os.path.exists(input_path):
+        raise FileNotFoundError(
+            f"Expected input file at {input_path}, but it does not exist."
+        )
+
+    with open(input_path, "r") as f:
+        return [l.strip() for l in f.readlines()]
+
+
+args = parse_args()
+Iteration = args.iteration if args.iteration is not None else 1
+max_concurrent = (
+    args.max_concurrent if args.max_concurrent is not None else DEFAULT_MAX_CONCURRENT
+)
+
+# Load the input text for this iteration
+text = load_text(
+    dataset=args.dataset,
+    iteration=Iteration,
+    dataset_root=args.dataset_root,
+    dataset_prefix=args.dataset_prefix,
+)
 
 # 修改API调用
-
-# async def api_model(prompt, system_prompt=None, history_messages=[], **kwargs) -> str:
-#     openai_async_client = AsyncOpenAI(api_key=api_key, base_url=api_base)
-#     messages = []
-#     if system_prompt:
-#         messages.append({"role": "system", "content": system_prompt})
-#     messages.extend(history_messages)
-#     messages.append({"role": "user", "content": prompt})
-    
-#     response = await openai_async_client.chat.completions.create(
-#         model="gpt-4o-mini", messages=messages, temperature=0, **kwargs
-#     )
-#     return response.choices[0].message.content
-
-async def api_model(prompt, system_prompt=None, history_messages=[], **kwargs) -> str:
-    openai_async_client = AsyncOpenAI(api_key=api_key, base_url=api_base)
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.extend(history_messages)
-    messages.append({"role": "user", "content": prompt})
-
-    response = await api_model(  
-        prompt=prompt,  
-        system_prompt=system_prompt,  
-        history_messages=history_messages,  
-        model_type="entity_extraction",  
-        **kwargs  
-    )
-
-    return response.choices[0].message.content
 
 async def _run_api(queries, max_concurrent=8):
     semaphore = asyncio.Semaphore(max_concurrent)
 
     async def limited_api_model(query):
         async with semaphore:
-            return await api_model(query)
+            # await asyncio.sleep(15)  # 添加延迟以避免过快的请求
+            return await api_model(query, model_type="entity_extraction")
 
     tasks = [limited_api_model(query) for query in queries]
     answers = await tqdm.gather(*tasks)
@@ -87,7 +126,7 @@ Text: "{t}"
 List of entities: """
         prompts.append(prompt)
     
-    entities_list = await _run_api(prompts)
+    entities_list = await _run_api(prompts, max_concurrent=max_concurrent)
     return entities_list
 
 async def denoise_text(texts, entities_list):
@@ -113,25 +152,39 @@ Entities: {entities}
 Denoised text: """
         prompts.append(prompt)
     
-    denoised_texts = await _run_api(prompts)
+    denoised_texts = await _run_api(prompts, max_concurrent=max_concurrent)
     return denoised_texts
+
+
 
 async def main():
     # 提取实体并保存
     entities_list = await extract_entities(text)
-    with open(dataset_path + f"Iteration{Iteration}/test_entity.txt", "w") as output_file:
+
+    # Ensure this iteration directory exists.
+    ensure_iteration_dir(
+        Iteration, dataset=args.dataset, root=args.dataset_root, prefix=args.dataset_prefix
+    )
+
+    entity_file = entity_path(
+        Iteration, dataset=args.dataset, root=args.dataset_root, prefix=args.dataset_prefix
+    )
+    with open(entity_file, "w") as output_file:
         for entities in entities_list:
             output_file.write(entities.strip().replace('\n', '') + '\n')
-    
+
     # 读取提取的实体
     last_extracted_entities = []
-    with open(dataset_path + f'Iteration{Iteration}/test_entity.txt', 'r') as f:
+    with open(entity_file, "r") as f:
         for l in f.readlines():
             last_extracted_entities.append(l.strip())
-    
+
     # 去噪文本并保存
     denoised_texts = await denoise_text(text, last_extracted_entities)
-    with open(dataset_path + f"Iteration{Iteration}/test_denoised.target", "w") as output_file:
+    denoised_file = denoised_target_path(
+        Iteration, dataset=args.dataset, root=args.dataset_root, prefix=args.dataset_prefix
+    )
+    with open(denoised_file, "w") as output_file:
         for denoised_text in denoised_texts:
             output_file.write(denoised_text.strip().replace('\n', '') + '\n')
 

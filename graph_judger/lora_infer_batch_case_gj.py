@@ -1,5 +1,4 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 import sys
 import torch
 import argparse
@@ -13,16 +12,13 @@ assert (
 ), "LLaMA is now in HuggingFace's main branch.\nPlease reinstall it: pip uninstall transformers && pip install git+https://github.com/huggingface/transformers.git"
 from transformers import LlamaTokenizer, LlamaForCausalLM, GenerationConfig
 
-# model config
-BASE_MODEL = "NousResearch/Llama-2-7b-hf"
-# LORA_WEIGHTS = "models/llama2-7b-lora-wn18rr/"
-# LORA_WEIGHTS = "models/llama2-7b-lora-wn11/"
-# LORA_WEIGHTS = "models/llama2-7b-lora-FB13/"
+# Import config
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from chat.config import Config
 
-# LORA_WEIGHTS = "models/llama2-7b-lora-rebel-sub-context-tmp/"
-LORA_WEIGHTS = "models/llama2-7b-lora-scierc-context-0518"
-# LORA_WEIGHTS = "models/llama2-7b-lora-genwiki-context-tmp/"
-# LORA_WEIGHTS = "models/llama2-7b-lora-genwiki-20250508/" 
+# model config
+BASE_MODEL = Config.BASE_MODEL_PATH
+LORA_WEIGHTS = Config.SCIERC_OUTPUT_DIR  # Default to scierc, can be overridden by args
 
 # tokenizer
 tokenizer = LlamaTokenizer.from_pretrained(BASE_MODEL)

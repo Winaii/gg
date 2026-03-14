@@ -1,5 +1,4 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import sys
 import torch
 import argparse
@@ -12,8 +11,12 @@ assert (
 ), "LLaMA is now in HuggingFace's main branch.\nPlease reinstall it: pip uninstall transformers && pip install git+https://github.com/huggingface/transformers.git"
 from transformers import LlamaTokenizer, LlamaForCausalLM, GenerationConfig
 
+# Import config
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from chat.config import Config
+
 # model config
-BASE_MODEL = "NousResearch/Llama-2-7b-hf"
+BASE_MODEL = Config.BASE_MODEL_PATH
 
 # tokenizer
 tokenizer = LlamaTokenizer.from_pretrained(BASE_MODEL)

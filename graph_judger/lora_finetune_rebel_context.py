@@ -1,5 +1,4 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import sys
 import torch
 import torch.nn as nn
@@ -16,6 +15,9 @@ from peft import (
     get_peft_model_state_dict,
 )
 
+# Import config
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from chat.config import Config
 
 
 # optimized for RTX 4090. for larger GPUs, increase some of these?
@@ -35,10 +37,9 @@ TARGET_MODULES = [
     "v_proj",
 ]
 
-DATA_PATH = "data/rebel_sub_4omini_context/train_instructions_context_llama2_7b.json"
-OUTPUT_DIR = "models/llama3-8b-instruct-lora-rebel-sub-context"
-# base_model_path = "NousResearch/Llama-2-7b-hf"
-base_model_path = "/data/haoyuhuang/model/llama-3-8b-Instruct/"
+DATA_PATH = Config.REBEL_DATA_PATH
+OUTPUT_DIR = Config.REBEL_OUTPUT_DIR
+base_model_path = Config.REBEL_BASE_MODEL_PATH
 
 # ddp
 device_map = "auto"

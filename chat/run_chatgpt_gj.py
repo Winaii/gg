@@ -1,8 +1,13 @@
 # 在文件顶部添加导入  
-from .model_interface import api_model, ModelFactory  
-from .config import ModelConfig 
-
+import argparse
+import sys
 import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from chat.model_interface import api_model, ModelFactory  
+from chat.config import ModelConfig 
+from chat.config import dataset_dir, DEFAULT_MAX_CONCURRENT
+
 import aiohttp
 import asyncio
 import json
@@ -15,10 +20,58 @@ from datasets import load_dataset
 # api_base = ""
 
 
-folder = "GPT4o_mini_result_rebel_sub"
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run graph judgement instruction generation.")
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        help="Dataset name (e.g. rebel_sub). Can also be set via DATASET_NAME env var.",
+    )
+    parser.add_argument(
+        "--dataset-root",
+        type=str,
+        default=None,
+        help="Datasets root directory. Can also be set via DATASET_ROOT env var.",
+    )
+    parser.add_argument(
+        "--dataset-prefix",
+        type=str,
+        default=None,
+        help="Dataset folder prefix. Can also be set via DATASET_PREFIX env var.",
+    )
+    parser.add_argument(
+        "--instructions-file",
+        type=str,
+        default="test_instructions_context_llama2_7b.json",
+        help="Instruction JSON filename under the dataset folder.",
+    )
+    parser.add_argument(
+        "--output-file",
+        type=str,
+        default="pred_instructions_context_llama2_7b_gpt_mini.csv",
+        help="Output CSV filename under the dataset folder.",
+    )
+    parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=None,
+        help="Maximum number of concurrent API calls. Can also be set via MAX_CONCURRENT env var.",
+    )
+    return parser.parse_args()
+
+
+args = parse_args()
+max_concurrent = args.max_concurrent if args.max_concurrent is not None else DEFAULT_MAX_CONCURRENT
+
+folder = dataset_dir(
+    dataset=args.dataset,
+    root=args.dataset_root,
+    prefix=args.dataset_prefix,
+)
 # Input and output file paths
-input_file = f"./datasets/{folder}/test_instructions_context_llama2_7b.json"
-output_file = f"./datasets/{folder}/pred_instructions_context_llama2_7b_gpt_mini.csv"
+input_file = os.path.join(folder, args.instructions_file)
+output_file = os.path.join(folder, args.output_file)
 
 # Load instructions from JSON file
 total_input = load_dataset("json", data_files=input_file)
@@ -68,14 +121,20 @@ async def get_chatgpt_completion(instruction, input_text):
 
 async def process_instructions():
     """
-    Process each instruction and generate responses using GPT.
+    Process each instruction and generate responses using GPT with concurrency control.
     """
+    semaphore = asyncio.Semaphore(max_concurrent)  # Limit to max concurrent requests
+    
+    async def limited_get_chatgpt_completion(instruction, input_text):
+        async with semaphore:
+            return await get_chatgpt_completion(instruction, input_text)
+    
     async with aiohttp.ClientSession() as session:
         tasks = []
         for item in data_eval:
             instruction = item["instruction"]
             input_text = item["input"]
-            tasks.append(get_chatgpt_completion(session, instruction, input_text))
+            tasks.append(limited_get_chatgpt_completion(instruction, input_text))
 
         # Execute all tasks and gather responses
         responses = await tqdm.gather(*tasks)

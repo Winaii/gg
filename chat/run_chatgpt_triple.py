@@ -1,8 +1,19 @@
 # 在文件顶部添加导入  
-from .model_interface import api_model  
-from .config import ModelConfig 
-
+import argparse
+import sys
 import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from chat.model_interface import api_model  
+from chat.config import ModelConfig 
+from chat.config import (
+    denoised_target_path,
+    entity_path,
+    graph_output_dir,
+    graph_output_path,
+    DEFAULT_MAX_CONCURRENT,
+)
+
 import asyncio
 import json
 import functools
@@ -16,23 +27,86 @@ from openai import AsyncOpenAI
 # api_base = ""
 # openai_async_client = AsyncOpenAI(api_key=api_key, base_url=api_base)
 
-# Read the text to be denoised
-text = []
-entity = []
-# dataset = "rebel_sub"
-dataset = "GenWiki-Hard"
-# dataset = "SCIERC"
-dataset_path = f'./datasets/GPT4o_mini_result_{dataset}/'
-Denoised_Iteration = 1
-Graph_Iteration = 1
+def parse_args():
+    parser = argparse.ArgumentParser(description="Generate a semantic graph (triples) from denoised text and entities.")
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        help="Dataset name (e.g. GenWiki-Hard). Can also be set via DATASET_NAME env var.",
+    )
+    parser.add_argument(
+        "--dataset-root",
+        type=str,
+        default=None,
+        help="Datasets root directory. Can also be set via DATASET_ROOT env var.",
+    )
+    parser.add_argument(
+        "--dataset-prefix",
+        type=str,
+        default=None,
+        help="Dataset folder prefix. Can also be set via DATASET_PREFIX env var.",
+    )
+    parser.add_argument(
+        "--denoised-iteration",
+        type=int,
+        default=1,
+        help="Which iteration's denoised files to read (default 1).",
+    )
+    parser.add_argument(
+        "--graph-iteration",
+        type=int,
+        default=1,
+        help="Which graph iteration directory to write output into (default 1).",
+    )
+    parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=None,
+        help="Maximum number of concurrent API calls. Can also be set via MAX_CONCURRENT env var.",
+    )
+    return parser.parse_args()
 
-# Read denoised text
-with open(dataset_path + f'Iteration{Denoised_Iteration}/test_denoised.target', 'r') as f:
+
+args = parse_args()
+max_concurrent = args.max_concurrent if args.max_concurrent is not None else DEFAULT_MAX_CONCURRENT
+
+# Read the text to be denoised
+text_file = denoised_target_path(
+    args.denoised_iteration,
+    dataset=args.dataset,
+    root=args.dataset_root,
+    prefix=args.dataset_prefix,
+)
+if not os.path.exists(text_file):
+    raise FileNotFoundError(f"Expected denoised text file at {text_file}, but it does not exist.")
+
+with open(text_file, "r") as f:
     text = [l.strip() for l in f.readlines()]
 
 # Read the corresponding entities
-with open(dataset_path + f'Iteration{Denoised_Iteration}/test_entity.txt', 'r') as f:
+entity_file = entity_path(
+    args.denoised_iteration,
+    dataset=args.dataset,
+    root=args.dataset_root,
+    prefix=args.dataset_prefix,
+)
+if not os.path.exists(entity_file):
+    raise FileNotFoundError(f"Expected entity file at {entity_file}, but it does not exist.")
+
+with open(entity_file, "r") as f:
     entity = [l.strip() for l in f.readlines()]
+
+# Ensure output directory exists
+os.makedirs(
+    graph_output_dir(
+        args.graph_iteration,
+        dataset=args.dataset,
+        root=args.dataset_root,
+        prefix=args.dataset_prefix,
+    ),
+    exist_ok=True,
+)
 
 # 修改API调用
 
@@ -43,21 +117,21 @@ with open(dataset_path + f'Iteration{Denoised_Iteration}/test_entity.txt', 'r') 
 #     )
 #     return response.choices[0].message.content
 
-async def api_model(prompt, **kwargs):
-    messages = [{"role": "user", "content": prompt}]
-    response = await api_model(  
-    prompt=prompt,  
-    model_type="triple_generation",  
-    **kwargs  
-    )
-    return response.choices[0].message.content
+# async def api_model(prompt, **kwargs):
+#     messages = [{"role": "user", "content": prompt}]
+#     response = await api_model(  
+#     prompt=prompt,  
+#     model_type="triple_generation",  
+#     **kwargs  
+#     )
+#     return response.choices[0].message.content
 
 
-async def _run_api(prompts, max_concurrent=8):
+async def _run_api(prompts, max_concurrent=DEFAULT_MAX_CONCURRENT):
     semaphore = asyncio.Semaphore(max_concurrent)
     async def limited_api_model(prompt):
         async with semaphore:
-            return await api_model(prompt)
+            return await api_model(prompt, model_type="triple_generation")
     tasks = [limited_api_model(prompt) for prompt in prompts]
     answers = await tqdm.gather(*tasks)
     return answers
@@ -85,12 +159,18 @@ async def main():
             )
         prompts.append(prompt)
 
-    responses = await _run_api(prompts)
+    responses = await _run_api(prompts, max_concurrent=max_concurrent)
 
     # 写入文件
-    with open(dataset_path + f"Graph_Iteration{Graph_Iteration}/test_generated_graphs.txt", "w") as output_file:
+    output_file = graph_output_path(
+        args.graph_iteration,
+        dataset=args.dataset,
+        root=args.dataset_root,
+        prefix=args.dataset_prefix,
+    )
+    with open(output_file, "w") as output_file_obj:
         for response in responses:
-            output_file.write(response.strip().replace('\n', '') + '\n')
+            output_file_obj.write(response.strip().replace('\n', '') + '\n')
 
 # Run the async main function
 if __name__ == "__main__":

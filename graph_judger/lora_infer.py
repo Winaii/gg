@@ -1,9 +1,4 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-#os.system("pip install datasets")
-#os.system("pip install deepspeed")
-#os.system("pip install accelerate")
-#os.system("pip install transformers>=4.28.0")
 import sys
 import torch
 import argparse
@@ -16,14 +11,14 @@ assert (
 ), "LLaMA is now in HuggingFace's main branch.\nPlease reinstall it: pip uninstall transformers && pip install git+https://github.com/huggingface/transformers.git"
 from transformers import LlamaTokenizer, LlamaForCausalLM, GenerationConfig
 
+# Import config
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from chat.config import Config
 
-tokenizer = LlamaTokenizer.from_pretrained("NousResearch/Llama-2-7b-hf")
+tokenizer = LlamaTokenizer.from_pretrained(Config.BASE_MODEL_PATH)
 LOAD_8BIT = False
-BASE_MODEL = "NousResearch/Llama-2-7b-hf"
-# LORA_WEIGHTS = "models/llama2-7b-lora-wn18rr/"
-# LORA_WEIGHTS = "models/llama2-7b-lora-wn11/"
-# LORA_WEIGHTS = "models/llama2-7b-lora-FB13/"
-LORA_WEIGHTS = "models/llama2-7b-lora-gen/"
+BASE_MODEL = Config.BASE_MODEL_PATH
+LORA_WEIGHTS = Config.GENWIKI_OUTPUT_DIR  # Default to genwiki, can be overridden by args
 if torch.cuda.is_available():
     device = "cuda"
 else:

@@ -1,6 +1,6 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 import sys
+from chat.config import Config
 import torch
 import torch.nn as nn
 # import bitsandbytes as bnb
@@ -35,10 +35,10 @@ TARGET_MODULES = [
     "v_proj",
 ]
 
-DATA_PATH = "data/scierc_4omini_context/train_instructions_context_llama2_7b.json"
-OUTPUT_DIR = "models/llama3-8b-instruct-lora-scierc-context"
-# base_model_path = "NousResearch/Llama-2-7b-hf"
-base_model_path = "/data/haoyuhuang/model/llama-3-8b-Instruct/"
+DATA_PATH = Config.SCIERC_DATA_PATH
+OUTPUT_DIR = Config.SCIERC_OUTPUT_DIR
+BASE_MODEL_PATH = Config.SCIERC_BASE_MODEL_PATH
+
 
 # ddp
 device_map = "auto"
@@ -49,7 +49,7 @@ if ddp:
     GRADIENT_ACCUMULATION_STEPS = GRADIENT_ACCUMULATION_STEPS // world_size
 
 # tokenizer
-tokenizer = AutoTokenizer.from_pretrained(base_model_path, add_eos_token=True)
+tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_PATH, add_eos_token=True)
 tokenizer.padding_side = "left"
 tokenizer.pad_token = tokenizer.eos_token
 tokenizer.pad_token_id = 0
@@ -64,7 +64,7 @@ config = LoraConfig(
 
 # model
 model = LlamaForCausalLM.from_pretrained(
-    base_model_path,
+    BASE_MODEL_PATH,
     torch_dtype=torch.float16,
     # device_map=device_map,
 )
